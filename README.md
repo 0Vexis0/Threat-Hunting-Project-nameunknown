@@ -184,8 +184,31 @@ This section documents the first set of Microsoft Sentinel / Defender Advanced H
 
 ---
 
-## Query 1 – Initial Access: Compromised User Account ( Flag 88.97.178.12 MITRE: T1078 (Valid Accounts), T1021.001 (Remote Desktop Protocol)
+## Query 1 – Detecting Initial Access ( T1021.001 (Remote Desktop Protocol)
 
+```kql
+DeviceLogonEvents
+| where DeviceName == "azuki-sl"
+| where TimeGenerated between (datetime(2025-11-19) .. datetime(2025-11-20))
+| where LogonType in ("RemoteInteractive", "RemoteInteractive_Logon")
+| where ActionType == "LogonSuccess"
+| summarize FirstSeen = min(TimeGenerated) by AccountName, RemoteIP
+| order by FirstSeen asc
+```
+<img width="974" height="149" alt="image" src="https://github.com/user-attachments/assets/7bd14378-ee69-4655-8acd-a92c40960206" />
+
+## Purpose and Explanation of the DeviceLogonEvents Query
+
+The purpose of this query is to identify which user accounts successfully logged into the device `azuki-sl` during the initial breach window.  
+It filters the `DeviceLogonEvents` table to only include events from November 19, 2025, to November 20, 2025, focusing on a precise time frame of interest.  
+The query further narrows results to logons classified as `RemoteInteractive` or `RemoteInteractive_Logon`, which typically indicate remote access sessions such as RDP.  
+Only successful logon attempts (`ActionType == "LogonSuccess"`) are considered, excluding failed attempts that are not relevant to initial access analysis.  
+By summarizing the earliest (`min(TimeGenerated)`) successful logon per account and remote IP, the query highlights the first activity of each user on the device, which is critical for tracing initial access.  
+Finally, ordering the results chronologically (`order by FirstSeen asc`) provides a clear timeline of account activity to support incident investigation and attribution efforts.
+
+
+----
+## Query 2 –  Initial Access: Compromised User Account ( kenji.sato MITRE: T1078 (Valid Accounts) 
 ```kql
 DeviceLogonEvents
 | where DeviceName == "azuki-sl"
@@ -193,13 +216,33 @@ DeviceLogonEvents
 | where TimeGenerated between (datetime(2025-11-19) .. datetime(2025-11-20))
 | project TimeGenerated, AccountName, RemoteIP
 ```
+<img width="955" height="361" alt="image" src="https://github.com/user-attachments/assets/c7f63a5c-e7bb-489f-9625-9a4b300eb6cb" />
+## Purpose and Explanation of the DeviceLogonEvents Query for Specific Account
 
-Purpose
+This query is designed to track the activity of the user account `kenji.sato` on the device `azuki-sl` during a specific timeframe.  
+It filters the `DeviceLogonEvents` table to include only events between November 19, 2025, and November 20, 2025, focusing on the period relevant to the investigation.  
+By specifying `AccountName == "kenji.sato"`, the query isolates this account from all other users to determine its exact activity on the device.  
+The `project` operator selects only the most relevant fields: `TimeGenerated`, `AccountName`, and `RemoteIP`, reducing noise and making the output easier to analyze.  
+This allows investigators to see when the account logged in and from which remote IP addresses, helping to confirm whether it was involved in initial access or suspicious activity.  
+Overall, the query provides a clear, concise timeline of `kenji.sato`’s logon events on the device, supporting targeted forensic analysis and incident response.
 
-Identify whether the user account kenji.sato was used to authenticate to the system during the suspected initial access window.
 
-Explanation
+```kql
+DeviceLogonEvents
+| where DeviceName == "azuki-sl"
+| where AccountName == "kenji.sato"
+| where TimeGenerated between (datetime(2025-11-19) .. datetime(2025-11-20))
+| project TimeGenerated, AccountName, RemoteIP
+| where RemoteIP == "88.97.178.12"
+```
+<img width="800" height="297" alt="image" src="https://github.com/user-attachments/assets/74a8abd5-d92a-431e-9d98-a53beb0b0847" />
+## Purpose and Explanation of the DeviceLogonEvents Query for Specific Account and IP
 
-This query reviews authentication events on azuki-sl for a single user account over a narrow time range. By isolating logons tied to kenji.sato, the investigation confirms whether valid credentials were used rather than an exploit or brute-force attempt. The output focuses on timestamps and source IPs to establish an external origin.
+This query is designed to investigate the user account `kenji.sato` on the device `azuki-sl` during a defined time window.  
+It filters the `DeviceLogonEvents` table to events between November 19, 2025, and November 20, 2025, targeting the timeframe of potential initial access.  
+By specifying `AccountName == "kenji.sato"`, the query focuses exclusively on this user’s activity, excluding all other accounts.  
+The `project` operator selects only the relevant fields: `TimeGenerated`, `AccountName`, and `RemoteIP`, simplifying the analysis for investigators.  
+An additional filter `where RemoteIP == "88.97.178.12"` isolates logons originating from a specific IP address, helping to identify if this IP was used in the breach.  
+This approach provides a precise view of when and from where `kenji.sato` accessed the device, supporting detailed forensic analysis and targeted incident response.
 
-This establishes the foundation of the intrusion: valid account abuse
+
