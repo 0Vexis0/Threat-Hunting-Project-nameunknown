@@ -238,8 +238,10 @@ DeviceLogonEvents
 | where RemoteIP == "88.97.178.12"
 ```
 <img width="800" height="297" alt="image" src="https://github.com/user-attachments/assets/74a8abd5-d92a-431e-9d98-a53beb0b0847" />
+
 ## Purpose and Explanation of the DeviceLogonEvents Query for Specific Account and IP
 ----
+
 This query is designed to investigate the user account `kenji.sato` on the device `azuki-sl` during a defined time window.  
 It filters the `DeviceLogonEvents` table to events between November 19, 2025, and November 20, 2025, targeting the timeframe of potential initial access.  
 By specifying `AccountName == "kenji.sato"`, the query focuses exclusively on this user’s activity, excluding all other accounts.  
