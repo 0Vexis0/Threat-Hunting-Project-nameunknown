@@ -218,7 +218,7 @@ DeviceLogonEvents
 | project TimeGenerated, AccountName, RemoteIP
 ```
 <img width="955" height="361" alt="image" src="https://github.com/user-attachments/assets/c7f63a5c-e7bb-489f-9625-9a4b300eb6cb" />
-## Purpose and Explanation of the DeviceLogonEvents Query for Specific Account
+Purpose and Explanation of the DeviceLogonEvents Query for Specific Account
 
 This query is designed to track the activity of the user account `kenji.sato` on the device `azuki-sl` during a specific timeframe.  
 It filters the `DeviceLogonEvents` table to include only events between November 19, 2025, and November 20, 2025, focusing on the period relevant to the investigation.  
