@@ -298,4 +298,65 @@ Overall, this query is used to identify intentional attempts to conceal files or
 
 #4 Flag = C:\ProgramData\WindowsCache
 ----
+```kql
+DeviceRegistryEvents
+| where DeviceName == "azuki-sl"
+| where RegistryKey contains @"Windows Defender\Exclusions\Extensions"
+| project TimeGenerated, RegistryKey, RegistryValueName, RegistryValueData, ActionType
+| order by TimeGenerated asc
+```
+<img width="746" height="92" alt="image" src="https://github.com/user-attachments/assets/209153ad-1317-4e08-bc49-e6e2bf3a6c07" />
 
+## Purpose and Explanation of the DeviceRegistryEvents Query
+
+This query looks at changes made to the computer’s registry, which is a system database that stores Windows settings.  
+It focuses specifically on the device `azuki-sl` and searches in the registry path where **Windows Defender stores file types it should ignore**.  
+The query projects the exact time each change happened, the registry key path, the name of the value changed (the file extension excluded), the data stored for that value, and the action type performed.  
+Results are ordered chronologically (`order by TimeGenerated asc`) to provide a clear timeline of when exclusions were added.  
+In this run, the query identified three file extensions that were excluded, meaning the attacker modified Defender to ignore those file types, allowing potentially malicious files to run undetected.  
+
+- **HKLM (HKEY_LOCAL_MACHINE)** is a Windows registry hive that stores settings applying to the entire computer, not just a single user.  
+- Changes under HKLM affect all users on the device, so any modifications (like Defender exclusions) apply system-wide, though not every registry key in HKLM represents the device itself—it represents system-wide configuration settings.
+
+#5 Flag = 3
+----
+```kql
+DeviceRegistryEvents
+| where DeviceName == "azuki-sl"
+| where RegistryKey contains @"Windows Defender\Exclusions\Paths"
+| project TimeGenerated, RegistryKey, RegistryValueName, RegistryValueData, ActionType
+| order by TimeGenerated asc
+```
+<img width="751" height="164" alt="image" src="https://github.com/user-attachments/assets/0de144b8-daa1-43b2-b545-e3a3c644efe0" />
+
+## Purpose and Explanation of the DeviceRegistryEvents Query for Defender Excluded Paths
+
+This query looks at registry activity, which records changes made to important Windows system settings.  
+It focuses only on the device named `azuki-sl` and searches the exact area of the registry where Windows Defender stores folder paths it has been told to ignore.  
+By filtering for `Exclusions\Paths`, the query isolates cases where a folder was added to Defender’s exclusion list, meaning Defender will no longer scan files inside that directory.  
+The results show when the change happened, the registry location, and—most importantly—the folder path itself, which appears in the `RegistryValueName` field.  
+Because attackers commonly choose temporary or system folders to store tools and downloads, seeing a temporary directory listed here strongly suggests it was used as a staging area for malware.  
+Once that folder was excluded, Windows Defender would skip scanning anything inside it, allowing malicious files to run without being detected.
+
+#6 Flag = C:\Users\KENJI~1.SAT\AppData\Local\Temp
+----
+```kql
+DeviceProcessEvents
+| where DeviceName == "azuki-sl"
+| where ProcessCommandLine contains "http"
+| where ProcessCommandLine contains ".exe"
+| project TimeGenerated, FileName, ProcessCommandLine, InitiatingProcessAccountName
+| order by TimeGenerated asc
+```
+<img width="760" height="43" alt="image" src="https://github.com/user-attachments/assets/d9c627ab-949a-4b42-820b-54102877e04e" />
+## Purpose and Explanation of the DeviceProcessEvents Query for Internet-Downloaded Executables
+
+This query examines processes run on the device `azuki-sl` that involve potential file downloads from the internet.  
+It filters for command lines containing `http`, indicating a web address, and `.exe`, showing that the file involved was an executable.  
+Together, these conditions isolate processes likely used to download a program rather than normal browsing or file access.  
+The query projects `TimeGenerated`, `FileName`, `ProcessCommandLine`, and `InitiatingProcessAccountName`, providing details on when the command ran, which executable launched it, the full command line, and the user responsible.  
+This makes it easier to identify suspicious behavior or unauthorized downloads on the system.  
+If `certutil.exe` appears in the `FileName` column, it indicates the attacker used this legitimate Windows utility to download files from a URL, which is a common post-compromise technique.
+
+#7 Flag = certutil.exe
+----
