@@ -208,7 +208,6 @@ By summarizing the earliest (`min(TimeGenerated)`) successful logon per account 
 Finally, ordering the results chronologically (`order by FirstSeen asc`) provides a clear timeline of account activity to support incident investigation and attribution efforts.
 
 #2 Flag = kenji.sato
-
 ----
 ## Query 2 –  Initial Access: Compromised User Account ( kenji.sato MITRE: T1078 (Valid Accounts) 
 ```kql
