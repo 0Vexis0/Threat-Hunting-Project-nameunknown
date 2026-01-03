@@ -197,6 +197,7 @@ DeviceLogonEvents
 ```
 <img width="974" height="149" alt="image" src="https://github.com/user-attachments/assets/7bd14378-ee69-4655-8acd-a92c40960206" />
 
+ 
 ## Purpose and Explanation of the DeviceLogonEvents Query
 
 The purpose of this query is to identify which user accounts successfully logged into the device `azuki-sl` during the initial breach window.  
