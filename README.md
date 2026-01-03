@@ -199,7 +199,7 @@ DeviceLogonEvents
 
  
 ## Purpose and Explanation of the DeviceLogonEvents Query
-
+---
 The purpose of this query is to identify which user accounts successfully logged into the device `azuki-sl` during the initial breach window.  
 It filters the `DeviceLogonEvents` table to only include events from November 19, 2025, to November 20, 2025, focusing on a precise time frame of interest.  
 The query further narrows results to logons classified as `RemoteInteractive` or `RemoteInteractive_Logon`, which typically indicate remote access sessions such as RDP.  
@@ -218,8 +218,9 @@ DeviceLogonEvents
 | project TimeGenerated, AccountName, RemoteIP
 ```
 <img width="955" height="361" alt="image" src="https://github.com/user-attachments/assets/c7f63a5c-e7bb-489f-9625-9a4b300eb6cb" />
-Purpose and Explanation of the DeviceLogonEvents Query for Specific Account
 
+## Purpose and Explanation of the DeviceLogonEvents Query for Specific Account
+----
 This query is designed to track the activity of the user account `kenji.sato` on the device `azuki-sl` during a specific timeframe.  
 It filters the `DeviceLogonEvents` table to include only events between November 19, 2025, and November 20, 2025, focusing on the period relevant to the investigation.  
 By specifying `AccountName == "kenji.sato"`, the query isolates this account from all other users to determine its exact activity on the device.  
@@ -238,7 +239,7 @@ DeviceLogonEvents
 ```
 <img width="800" height="297" alt="image" src="https://github.com/user-attachments/assets/74a8abd5-d92a-431e-9d98-a53beb0b0847" />
 ## Purpose and Explanation of the DeviceLogonEvents Query for Specific Account and IP
-
+----
 This query is designed to investigate the user account `kenji.sato` on the device `azuki-sl` during a defined time window.  
 It filters the `DeviceLogonEvents` table to events between November 19, 2025, and November 20, 2025, targeting the timeframe of potential initial access.  
 By specifying `AccountName == "kenji.sato"`, the query focuses exclusively on this user’s activity, excluding all other accounts.  
