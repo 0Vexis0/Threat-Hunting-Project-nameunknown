@@ -229,7 +229,7 @@ The `project` operator selects only the most relevant fields: `TimeGenerated`, `
 This allows investigators to see when the account logged in and from which remote IP addresses, helping to confirm whether it was involved in initial access or suspicious activity.  
 Overall, the query provides a clear, concise timeline of `kenji.sato`’s logon events on the device, supporting targeted forensic analysis and incident response.
 
-
+----
 ```kql
 DeviceLogonEvents
 | where DeviceName == "azuki-sl"
@@ -251,4 +251,52 @@ An additional filter `where RemoteIP == "88.97.178.12"` isolates logons originat
 This approach provides a precise view of when and from where `kenji.sato` accessed the device, supporting detailed forensic analysis and targeted incident response.
 
 #1 Flag = 88.97.178.12
+----
+
+```kql
+DeviceProcessEvents
+| where DeviceName == "azuki-sl"
+| where AccountName == "kenji.sato"
+| where TimeGenerated between (datetime(2025-11-19) .. datetime(2025-11-20))
+| where ProcessCommandLine contains "-a"
+| project TimeGenerated, DeviceName, AccountName, FileName, ProcessCommandLine
+| take 100
+```
+<img width="762" height="151" alt="image" src="https://github.com/user-attachments/assets/58da48a4-918c-4eec-ad80-2e1596e7056f" />
+
+## Purpose and Explanation of the DeviceProcessEvents Query
+
+The purpose of this query is to identify process activity executed by the user account `kenji.sato` on the device `azuki-sl` during the suspected breach window.  
+It filters the `DeviceProcessEvents` table to a specific timeframe between November 19, 2025, and November 20, 2025, ensuring the analysis remains focused on relevant activity.  
+By restricting results to the account `kenji.sato`, the query isolates processes launched under that user’s context, which is critical when validating potential attacker-controlled execution.  
+The condition `ProcessCommandLine contains "-a"` is used to detect processes that were executed with specific command-line arguments, which may indicate suspicious or malicious behavior.  
+The `project` statement limits the output to key forensic fields such as execution time, device name, account name, process filename, and full command line for analysis.  
+Finally, the `take 100` operator caps the results to the first 100 records, making the output manageable while still providing sufficient data to identify abnormal process execution patterns.
+
+#3 Flag = ARP.EXE -a
+----
+```kql
+DeviceProcessEvents
+| where DeviceName == "azuki-sl"
+| where AccountName == "kenji.sato"
+| where TimeGenerated between (datetime(2025-11-19) .. datetime(2025-11-20))
+| where ProcessCommandLine contains "attrib"
+| where ProcessCommandLine contains "+h"
+| where ProcessCommandLine contains "C:\\"
+| project TimeGenerated, FileName, ProcessCommandLine
+| take 100
+```
+<img width="781" height="122" alt="image" src="https://github.com/user-attachments/assets/2d06afbd-8493-4aef-862a-942052dc7571" />
+
+## Purpose and Explanation of the DeviceProcessEvents Query
+
+This query analyzes process activity on the device `azuki-sl` executed by the user account `kenji.sato` within a defined investigation window.  
+It specifically focuses on commands containing `attrib`, a native Windows utility used to modify file and folder attributes.  
+The filter for `+h` narrows the results to cases where files or directories were explicitly marked as hidden, which is a common stealth technique.  
+Requiring the command line to include a `C:\` path ensures the action targeted an actual local file or folder on the system.  
+The projected fields show when the action occurred, which executable was responsible, and the exact command that was run.  
+Overall, this query is used to identify intentional attempts to conceal files or directories that may indicate post-compromise or persistence-related activity.
+
+#4 Flag = C:\ProgramData\WindowsCache
+----
 
