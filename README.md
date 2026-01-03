@@ -467,3 +467,12 @@ This activity maps directly to the MITRE ATT&CK **Persistence** tactic, specific
 
 #8 Flag 8 = Windows Update Check
 ----
+
+## Section 1 Summary – Initial Access and Early Attacker Activity
+
+Section 1 focuses on identifying how the attacker gained initial access to the device `azuki-sl` and what actions they performed immediately after compromise.  
+Using `DeviceLogonEvents`, the analysis established which accounts successfully logged in during the initial breach window (November 19–20, 2025), highlighting the use of remote access via RDP (T1021.001).  
+The account `kenji.sato` was flagged as compromised, with logons traced to a specific IP address (`88.97.178.12`), confirming unauthorized access from an external source.  
+`DeviceProcessEvents` queries revealed suspicious process execution, including command-line usage with the `-a` argument, hiding files using `attrib +h`, and downloading executables from the internet (`http` and `.exe` in command lines), indicating attacker-controlled activity and attempts to conceal tools.  
+Registry analysis showed modifications to Windows Defender exclusions for both file types and folder paths, allowing malicious files to run undetected, while scheduled task creation using `schtasks.exe` demonstrated persistence tactics.  
+Overall, Section 1 maps the attacker's early activity, from initial access through lateral movement, stealth, and persistence, providing a detailed timeline of compromise and supporting forensic investigation and mitigation planning.
