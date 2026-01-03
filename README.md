@@ -207,6 +207,7 @@ Only successful logon attempts (`ActionType == "LogonSuccess"`) are considered, 
 By summarizing the earliest (`min(TimeGenerated)`) successful logon per account and remote IP, the query highlights the first activity of each user on the device, which is critical for tracing initial access.  
 Finally, ordering the results chronologically (`order by FirstSeen asc`) provides a clear timeline of account activity to support incident investigation and attribution efforts.
 
+#2 Flag = kenji.sato
 
 ----
 ## Query 2 –  Initial Access: Compromised User Account ( kenji.sato MITRE: T1078 (Valid Accounts) 
@@ -249,4 +250,5 @@ The `project` operator selects only the relevant fields: `TimeGenerated`, `Accou
 An additional filter `where RemoteIP == "88.97.178.12"` isolates logons originating from a specific IP address, helping to identify if this IP was used in the breach.  
 This approach provides a precise view of when and from where `kenji.sato` accessed the device, supporting detailed forensic analysis and targeted incident response.
 
+#1 Flag = 88.97.178.12
 
