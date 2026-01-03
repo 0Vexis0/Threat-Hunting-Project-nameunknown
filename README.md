@@ -207,6 +207,15 @@ Only successful logon attempts (`ActionType == "LogonSuccess"`) are considered, 
 By summarizing the earliest (`min(TimeGenerated)`) successful logon per account and remote IP, the query highlights the first activity of each user on the device, which is critical for tracing initial access.  
 Finally, ordering the results chronologically (`order by FirstSeen asc`) provides a clear timeline of account activity to support incident investigation and attribution efforts.
 
+# Thought Process Regarding Query 1 – Detecting Initial Access (T1021.001 Remote Desktop Protocol)
+
+1. The goal is to identify which accounts successfully accessed the device via remote sessions during the suspected initial breach window.  
+2. Filtering by `DeviceName == "azuki-sl"` isolates the specific host under investigation.  
+3. Limiting the `TimeGenerated` to the defined timeframe ensures that only relevant events are analyzed.  
+4. Filtering for `LogonType` values "RemoteInteractive" or "RemoteInteractive_Logon" targets RDP and other remote access methods that could have been exploited.  
+5. Using `ActionType == "LogonSuccess"` ensures only successful logons are included, which are critical to trace initial access.  
+6. Summarizing by the earliest logon per account and remote IP provides a timeline of initial access attempts, supporting incident investigation and attribution.
+
 #2 Flag = kenji.sato
 ----
 ## Query 2 –  Initial Access: Compromised User Account ( kenji.sato MITRE: T1078 (Valid Accounts) 
@@ -228,6 +237,15 @@ The `project` operator selects only the most relevant fields: `TimeGenerated`, `
 This allows investigators to see when the account logged in and from which remote IP addresses, helping to confirm whether it was involved in initial access or suspicious activity.  
 Overall, the query provides a clear, concise timeline of `kenji.sato`’s logon events on the device, supporting targeted forensic analysis and incident response.
 
+# Thought Process Regarding Query 2 – Initial Access: Compromised User Account (kenji.sato T1078 Valid Accounts)
+
+1. The objective is to focus on a specific compromised account, `kenji.sato`, to verify its activity during the breach.  
+2. Filtering by `DeviceName` ensures only the relevant endpoint is examined.  
+3. Restricting `TimeGenerated` keeps the analysis within the window of interest.  
+4. Filtering by `AccountName` isolates this user from all other accounts on the device.  
+5. Projecting only `TimeGenerated`, `AccountName`, and `RemoteIP` simplifies the output to key forensic details for easier review.  
+6. This query allows analysts to track the account's activity and validate if it was leveraged during the attack.
+
 ----
 ```kql
 DeviceLogonEvents
@@ -248,6 +266,15 @@ By specifying `AccountName == "kenji.sato"`, the query focuses exclusively on th
 The `project` operator selects only the relevant fields: `TimeGenerated`, `AccountName`, and `RemoteIP`, simplifying the analysis for investigators.  
 An additional filter `where RemoteIP == "88.97.178.12"` isolates logons originating from a specific IP address, helping to identify if this IP was used in the breach.  
 This approach provides a precise view of when and from where `kenji.sato` accessed the device, supporting detailed forensic analysis and targeted incident response.
+
+# Thought Process Regarding Query 3 – Specific Account and IP Activity (kenji.sato)
+
+1. This query aims to trace activity for `kenji.sato` originating from a specific IP (`88.97.178.12`) on the compromised device.  
+2. Filtering by `DeviceName` ensures only the host of interest is included.  
+3. The `TimeGenerated` filter restricts analysis to the suspected breach timeframe.  
+4. Projecting `TimeGenerated`, `AccountName`, and `RemoteIP` focuses on essential forensic information.  
+5. Including the IP filter identifies which logons came from a particular remote source, critical for pinpointing the attacker’s origin.  
+6. This precise filtering provides a detailed timeline of account activity associated with that IP, aiding targeted investigation.
 
 #1 Flag = 88.97.178.12
 ----
@@ -271,6 +298,15 @@ By restricting results to the account `kenji.sato`, the query isolates processes
 The condition `ProcessCommandLine contains "-a"` is used to detect processes that were executed with specific command-line arguments, which may indicate suspicious or malicious behavior.  
 The `project` statement limits the output to key forensic fields such as execution time, device name, account name, process filename, and full command line for analysis.  
 Finally, the `take 100` operator caps the results to the first 100 records, making the output manageable while still providing sufficient data to identify abnormal process execution patterns.
+
+# Thought Process Regarding Query 4 – Process Activity with "-a" Argument
+
+1. The goal is to detect process execution by `kenji.sato` that includes the `-a` command-line argument, which may indicate unusual or attacker-driven execution.  
+2. Filtering by `DeviceName` and `AccountName` isolates relevant events on the affected host and user.  
+3. The `TimeGenerated` filter focuses on the window when the compromise likely occurred.  
+4. Searching for `ProcessCommandLine contains "-a"` identifies processes executed with potentially malicious arguments.  
+5. Projecting `TimeGenerated`, `DeviceName`, `AccountName`, `FileName`, and `ProcessCommandLine` provides the necessary forensic context.  
+6. Limiting results with `take 100` ensures manageable output for analysis while highlighting abnormal process activity.
 
 #3 Flag = ARP.EXE -a
 ----
@@ -296,6 +332,15 @@ Requiring the command line to include a `C:\` path ensures the action targeted a
 The projected fields show when the action occurred, which executable was responsible, and the exact command that was run.  
 Overall, this query is used to identify intentional attempts to conceal files or directories that may indicate post-compromise or persistence-related activity.
 
+# Thought Process Regarding Query 5 – Hidden Files and Folders (attrib +h)
+
+1. The purpose is to detect use of the `attrib` utility with the `+h` parameter to hide files, a common post-compromise stealth technique.  
+2. Filtering by `DeviceName` and `AccountName` focuses on relevant host and user activity.  
+3. The `TimeGenerated` range ensures only events during the suspected breach are analyzed.  
+4. Requiring `ProcessCommandLine` to include `"attrib"`, `"+h"`, and `"C:\"` ensures detection of attempts to hide real files or directories.  
+5. Projecting `TimeGenerated`, `FileName`, and `ProcessCommandLine` captures the time, tool used, and exact command.  
+6. This query helps uncover attempts to conceal files or directories, indicating potential persistence or data staging activity.
+
 #4 Flag = C:\ProgramData\WindowsCache
 ----
 ```kql
@@ -318,6 +363,15 @@ In this run, the query identified three file extensions that were excluded, mean
 - **HKLM (HKEY_LOCAL_MACHINE)** is a Windows registry hive that stores settings applying to the entire computer, not just a single user.  
 - Changes under HKLM affect all users on the device, so any modifications (like Defender exclusions) apply system-wide, though not every registry key in HKLM represents the device itself—it represents system-wide configuration settings.
 
+# Thought Process Regarding Query 6 – Windows Defender Excluded File Types
+
+1. The objective is to identify modifications to Windows Defender exclusions for file types, which could indicate attempts to bypass antivirus.  
+2. Filtering by `DeviceName` ensures the query focuses on the target system.  
+3. Searching `RegistryKey contains "Exclusions\Extensions"` targets the registry area where Defender stores ignored file types.  
+4. Projecting key fields like `TimeGenerated`, `RegistryKey`, `RegistryValueName`, `RegistryValueData`, and `ActionType` captures necessary forensic details.  
+5. Ordering by `TimeGenerated` provides a chronological view of exclusion events.  
+6. The results help analysts determine which file types were excluded and assess if they facilitated malicious activity.
+
 #5 Flag = 3
 ----
 ```kql
@@ -337,6 +391,15 @@ By filtering for `Exclusions\Paths`, the query isolates cases where a folder was
 The results show when the change happened, the registry location, and—most importantly—the folder path itself, which appears in the `RegistryValueName` field.  
 Because attackers commonly choose temporary or system folders to store tools and downloads, seeing a temporary directory listed here strongly suggests it was used as a staging area for malware.  
 Once that folder was excluded, Windows Defender would skip scanning anything inside it, allowing malicious files to run without being detected.
+
+# Thought Process Regarding Query 7 – Windows Defender Excluded Paths
+
+1. The goal is to detect registry changes where folders were added to Windows Defender’s exclusion list.  
+2. Filtering by `DeviceName` targets the specific compromised host.  
+3. Searching `RegistryKey contains "Exclusions\Paths"` isolates registry changes affecting folder scanning.  
+4. Projecting `TimeGenerated`, `RegistryKey`, `RegistryValueName`, `RegistryValueData`, and `ActionType` provides complete context.  
+5. Ordering by `TimeGenerated` creates a timeline of when exclusions occurred.  
+6. Identifying temporary or system folders in the exclusions can reveal staging areas used by attackers to evade detection.
 
 #6 Flag = C:\Users\KENJI~1.SAT\AppData\Local\Temp
 ----
@@ -358,5 +421,49 @@ The query projects `TimeGenerated`, `FileName`, `ProcessCommandLine`, and `Initi
 This makes it easier to identify suspicious behavior or unauthorized downloads on the system.  
 If `certutil.exe` appears in the `FileName` column, it indicates the attacker used this legitimate Windows utility to download files from a URL, which is a common post-compromise technique.
 
+# Thought Process Regarding Query 8 – Internet-Downloaded Executables
+
+1. The objective is to identify processes that likely downloaded executables from the internet.  
+2. Filtering by `DeviceName` ensures only the host under investigation is analyzed.  
+3. Searching for `ProcessCommandLine contains "http"` and `.exe` isolates network-based executable downloads.  
+4. Projecting `TimeGenerated`, `FileName`, `ProcessCommandLine`, and `InitiatingProcessAccountName` provides details on the download activity.  
+5. Ordering by `TimeGenerated` creates a chronological view of potential malicious downloads.  
+6. The query highlights the use of utilities like `certutil.exe` by attackers to retrieve payloads, supporting detection of post-compromise activity.
+
 #7 Flag = certutil.exe
+----
+```kql
+DeviceProcessEvents
+| where DeviceName == "azuki-sl"
+| where FileName == "schtasks.exe"
+| where ProcessCommandLine contains "/create"
+| project 
+    TimeGenerated,
+    DeviceName,
+    FileName,
+    ProcessCommandLine,
+    InitiatingProcessAccountName
+| order by TimeGenerated asc
+```
+<img width="790" height="107" alt="image" src="https://github.com/user-attachments/assets/5ecb6703-8251-462f-80af-950cccb27d2b" />
+
+## Purpose and Explanation of the DeviceProcessEvents Query for Scheduled Task Creation
+
+This query searches `DeviceProcessEvents` to identify executions of `schtasks.exe` on the device `azuki-sl`, the Windows utility used to create and manage scheduled tasks.  
+By filtering for command lines containing the `/create` parameter, the query isolates events where a new scheduled task was created, excluding modifications or queries of existing tasks.  
+Scheduled task creation is important because it allows code to run automatically on a defined schedule without user interaction.  
+Attackers often abuse this behavior to ensure their payload persists across system reboots or user logoffs.  
+The projected fields (`TimeGenerated`, `DeviceName`, `FileName`, `ProcessCommandLine`, `InitiatingProcessAccountName`) reveal the exact command used, including the task name and executable, helping differentiate malicious tasks from legitimate ones.  
+This activity maps directly to the MITRE ATT&CK **Persistence** tactic, specifically Scheduled Task creation, establishing long-term, reliable access to the compromised system.
+
+# Thought Process Regarding Query 9 – Scheduled Task Creation
+
+1. The goal is to detect creation of scheduled tasks using `schtasks.exe`, which is often abused for persistence.  
+2. Filtering by `DeviceName` targets the specific system of interest.  
+3. Searching `FileName == "schtasks.exe"` and `ProcessCommandLine contains "/create"` isolates new task creation events.  
+4. Projecting `TimeGenerated`, `DeviceName`, `FileName`, `ProcessCommandLine`, and `InitiatingProcessAccountName` provides full context of the task and the user who created it.  
+5. Ordering chronologically allows analysts to see when tasks were created relative to other attacker activity.  
+6. Detecting scheduled task creation maps to the MITRE ATT&CK Persistence tactic and helps identify long-term access mechanisms used by attackers.
+
+#8 Flag 8 = Windows Update Check
 ----
