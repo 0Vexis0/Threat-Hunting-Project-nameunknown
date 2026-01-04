@@ -823,5 +823,41 @@ This query examines **DeviceProcessEvents** on the host `azuki-sl` during the de
 #20 Flag 20 =  mstsc.exe
 ----
 
+## Section 3 – Post-Compromise Re-Entry, Discovery, and Defense Evasion Analysis
+This section documents the attacker’s return to the environment after the initial compromise and details how access was re-established, expanded, and reinforced. Logon telemetry across azuki-related systems shows renewed successful authentications after November 22, 2025, confirming the attacker regained access rather than operating continuously. The presence of multiple azuki systems, including azuki-adminpc and azuki-fileserver01, indicates the intrusion expanded beyond the original host and into higher-value infrastructure. The use of the fileadmin account during these logons demonstrates that an administrative account was compromised and leveraged during this later phase of activity.
 
-  
+Following re-entry, the attacker conducted systematic discovery to map the environment. Execution of net.exe with the share argument confirms local share enumeration, while net.exe commands containing UNC paths show remote share discovery against internal systems such as 10.1.0.188. Additional execution of whoami.exe reveals privilege enumeration to confirm access level, and ipconfig.exe /all demonstrates network configuration discovery to understand domain and network layout. These actions reflect deliberate reconnaissance consistent with preparing for further lateral movement or data access.
+
+Defense evasion and data staging activity further confirms attacker intent. The use of attrib.exe with +h and +s flags shows deliberate hiding of directories to conceal staged artifacts. The chosen staging path, C:\Windows\Logs\CBS, is a legitimate Windows directory that blends in with system components, reducing the likelihood of detection. Finally, certutil.exe with the -urlcache option was used to download a PowerShell script into this hidden directory, linking defense evasion, staging, and execution together into a cohesive post-compromise workflow.
+
+Overall, this section demonstrates a structured second-phase intrusion in which the attacker re-entered the environment using compromised credentials, enumerated systems and privileges, hid operational artifacts, and staged additional tooling. These actions indicate a controlled and methodical adversary focused on persistence, internal awareness, and continued operational capability rather than opportunistic access.
+----
+```kql
+DeviceLogonEvents
+| where TimeGenerated >= datetime(2025-11-22)
+| where DeviceName contains "azuki"
+```
+<img width="1440" height="157" alt="image" src="https://github.com/user-attachments/assets/fca4b2a5-de0f-47f1-b01e-d7df7c23c9f9" />
+
+The query DeviceLogonEvents | where DeviceName contains "azuki" is used to identify all logon events for devices related to the “azuki” environment. By running this, I was able to see which devices had activity that hadn’t been fully investigated yet. Parsing through the results highlighted azuki-adminpc as a device with multiple logon entries, suggesting it may contain additional evidence worth examining.
+
+The query DeviceLogonEvents | where DeviceName contains "azuki" is used to identify all logon events for devices related to the “azuki” environment. By running this, I was able to see which devices had activity that hadn’t been fully investigated yet. Parsing through the results highlighted azuki-adminpc as a device with multiple logon entries, suggesting it may contain additional evidence worth examining. 
+
+```kql
+DeviceLogonEvents
+| where DeviceName contains "azuki"
+| where ActionType in ("LogonSuccess", "LogonSucceeded")
+| where isnotempty(RemoteIP)
+| where TimeGenerated >= datetime(2025-11-22)
+| summarize arg_min(TimeGenerated, *) by DeviceName
+| project TimeGenerated, DeviceName, AccountName, RemoteIP
+```
+<img width="768" height="107" alt="image" src="https://github.com/user-attachments/assets/d0690b9a-a8eb-43fb-8fd8-38eb8ee8d9e0" /> 
+
+Combined with the subsequent query that filtered for remote IPs, the analysis narrowed the results to just a few IPs, including the external attacker IP, making it much clearer that the attacker had successfully regained access to the environment.The query that filtered DeviceLogonEvents for azuki-related devices returned multiple entries, including the file server. Parsing the results showed azuki-fileserver01 as the device involved in suspicious logon activity. This indicates that the file server was accessed during the attack, suggesting it may have been compromised or used by the attacker to move laterally. Identifying this device helps focus further investigation on sensitive systems that could contain critical data or be leveraged for persistence.
+
+#21 Flag 21 = 159.26.106.98
+#22 Flag 22 = azuki-fileserver01
+#23 Flag 23 =fileadmin
+----
+
