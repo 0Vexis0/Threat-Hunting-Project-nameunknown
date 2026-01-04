@@ -856,8 +856,65 @@ DeviceLogonEvents
 
 Combined with the subsequent query that filtered for remote IPs, the analysis narrowed the results to just a few IPs, including the external attacker IP, making it much clearer that the attacker had successfully regained access to the environment.The query that filtered DeviceLogonEvents for azuki-related devices returned multiple entries, including the file server. Parsing the results showed azuki-fileserver01 as the device involved in suspicious logon activity. This indicates that the file server was accessed during the attack, suggesting it may have been compromised or used by the attacker to move laterally. Identifying this device helps focus further investigation on sensitive systems that could contain critical data or be leveraged for persistence.
 
-#21 Flag 21 = 159.26.106.98
-#22 Flag 22 = azuki-fileserver01
-#23 Flag 23 =fileadmin
+#23 Flag 23 = fileadmin, #22 Flag 22 = azuki-fileserver01, #21 Flag 21 = 159.26.106.98
 ----
+```kql
+DeviceProcessEvents
+| where DeviceName contains "azuki"
+| where TimeGenerated between (datetime(2025-11-22) .. datetime(2025-12-05))
+| where FileName == "net.exe"
+| where ProcessCommandLine contains "share"
+| project
+    TimeGenerated,
+    DeviceName,
+    AccountName,
+    FileName,
+    ProcessCommandLine
+| order by TimeGenerated asc
+```
+<img width="1249" height="212" alt="image" src="https://github.com/user-attachments/assets/ca37833e-21e5-49fc-9190-09b8c2e8ba5b" />
 
+## Purpose and Explanation – Network Share Enumeration (net.exe share)
+
+This query analyzes process execution activity on azuki-related systems during the post-dwell investigation window to identify network share enumeration. It filters for executions of **net.exe**, a built-in Windows networking utility, and further restricts results to command lines containing the **share** argument. This isolates instances where the attacker enumerated available local SMB network shares rather than performing unrelated networking actions. The resulting events confirm use of the **net.exe share** command, which lists shared folders, printers, and administrative shares along with their paths. Attackers commonly use this technique to identify accessible resources that may contain sensitive data or serve as pivot points for lateral movement.
+
+## Thought Process – Why This Query Identifies the Flag
+
+1. The objective was to detect evidence of discovery activity focused on identifying accessible network resources.  
+2. Filtering by `DeviceName contains "azuki"` scoped the query to systems involved in the post-compromise phase.  
+3. Restricting results to `FileName == "net.exe"` isolated use of the native Windows networking utility often abused by attackers.  
+4. Requiring `ProcessCommandLine contains "share"` ensured only commands enumerating SMB shares were captured.  
+5. Projecting execution time, device, account, and full command line provided sufficient context to validate attacker intent.  
+6. The presence of **net.exe share** confirms deliberate network share enumeration, aligning with the Discovery tactic and producing the flag.
+
+#24 Flag 24 = "net.exe" share
+----
+```kql
+DeviceProcessEvents
+| where DeviceName contains "azuki"
+| where TimeGenerated between (datetime(2025-11-22) .. datetime(2025-12-05))
+| where FileName == "net.exe"
+| where ProcessCommandLine contains "\\\\"
+| project
+    TimeGenerated,
+    DeviceName,
+    AccountName,
+    FileName,
+    ProcessCommandLine
+| order by TimeGenerated asc
+```
+## Purpose and Explanation – Remote Network Share Enumeration (net.exe view \\10.1.0.188)
+
+This query examines process execution events on azuki-related systems during the post-dwell investigation window to detect remote share discovery activity. It filters for **net.exe** executions and further restricts results to command lines containing **\\**, indicating UNC paths that target remote systems. The results highlight the command **net.exe view \\10.1.0.188**, showing the attacker enumerated SMB shares on a specific remote host. This confirms deliberate post-compromise network discovery to identify accessible systems and data for potential lateral movement or data collection.
+
+## Thought Process – Why This Query Identifies the Flag
+
+1. The goal was to detect remote network discovery actions performed by the attacker.  
+2. Filtering by `DeviceName contains "azuki"` ensures only relevant post-dwell devices are analyzed.  
+3. Restricting to `FileName == "net.exe"` isolates the native Windows networking utility used for share enumeration.  
+4. Searching for `ProcessCommandLine contains "\\\\"` specifically captures commands targeting remote UNC paths.  
+5. Projecting execution time, device, account, file name, and command line provides full context for analysis.  
+6. The occurrence of **net.exe view \\10.1.0.188** confirms enumeration of a remote host’s shares, producing the flag and supporting lateral movement investigation.
+
+#25 Flag 25 = "net.exe" view \\10.1.0.188
+----
