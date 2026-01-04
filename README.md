@@ -635,7 +635,193 @@ This query examines **DeviceFileEvents** on the host `azuki-sl` during the attac
 
 #14 Flag 14 = export-data.zip
 ----
+```kql
+DeviceNetworkEvents
+| where DeviceName == "azuki-sl"
+| where TimeGenerated between (datetime(2025-11-19) .. datetime(2025-11-20))
+| where RemotePort == 443
+| where InitiatingProcessCommandLine contains @"C:\ProgramData\WindowsCache\export-data.zip"
+| project 
+    TimeGenerated,
+    InitiatingProcessFileName,
+    InitiatingProcessCommandLine,
+    RemoteIP,
+    RemoteUrl,
+    Protocol
+| order by TimeGenerated asc
+```
+<img width="1443" height="199" alt="image" src="https://github.com/user-attachments/assets/fe010e2d-3b84-4d6a-8313-fb83d53dde56" />
+### Purpose and Explanation
+
+This query analyzes **DeviceNetworkEvents** on the host `azuki-sl` during the compromise window to identify how staged data was exfiltrated. It filters for network connections over port **443**, which captures encrypted HTTPS traffic commonly used to hide data transfers. By requiring the initiating process command line to reference `C:\ProgramData\WindowsCache\export-data.zip`, the query directly links outbound network activity to the staged archive file. The projected fields reveal the destination service, showing that **Discord** was used as the exfiltration channel.
+
+### Thought Process
+
+1. The objective was to determine where the staged ZIP file was sent after collection.  
+2. Filtering on `RemotePort == 443` isolates HTTPS traffic, a common method for covert exfiltration.  
+3. Matching the command line to `export-data.zip` ensures only traffic related to the staged archive is included.  
+4. Projecting `RemoteUrl` and `RemoteIP` exposes the external service receiving the data.  
+5. Ordering events chronologically ties the upload activity directly to the staging phase.  
+6. The appearance of **Discord** in the results confirms it was abused as the data exfiltration platform.
+
+#15 Flag 15 = discord
+----
+```kql
+DeviceProcessEvents
+| where DeviceName == "azuki-sl"
+| where TimeGenerated between (datetime(2025-11-19) .. datetime(2025-11-20))
+| where FileName =~ "wevtutil.exe"
+| where ProcessCommandLine has_any ("cl", "clear-log")
+| project TimeGenerated, ProcessCommandLine
+| order by TimeGenerated asc
+```
+<img width="753" height="206" alt="image" src="https://github.com/user-attachments/assets/563ab83d-53c5-4066-ac83-cdec5ab59aae" />
+
+### Purpose and Explanation
+
+This query examines **DeviceProcessEvents** on the host `azuki-sl` during the attack window to identify evidence of log tampering. It specifically filters for executions of **wevtutil.exe**, a native Windows utility used to manage and clear event logs. By narrowing results to command-line arguments such as `cl` or `clear-log`, the query isolates actions where logs were deliberately erased. The earliest command observed, `wevtutil.exe cl Security`, confirms that the **Security** event log was cleared first, followed by Application and System logs, indicating an intentional effort to remove forensic evidence of the intrusion.
+
+### Thought Process
+
+1. The goal was to determine whether the attacker attempted to cover their tracks by deleting Windows event logs.  
+2. Filtering by `DeviceName` and time range restricts results to the confirmed compromised host and attack period.  
+3. Searching for `wevtutil.exe` targets the primary Windows tool used for clearing event logs.  
+4. Including command-line arguments like `cl` and `clear-log` ensures only log deletion activity is captured.  
+5. Sorting results chronologically reveals the order in which logs were cleared.  
+6. The **Security** log appearing first confirms it was prioritized to erase authentication and privilege-related evidence.
 
 
+#16 Flag 16 = Security
+----
+```kql
+DeviceEvents
+| where DeviceName == "azuki-sl"
+| where TimeGenerated between (datetime(2025-11-19) .. datetime(2025-11-20))
+| where ActionType in (
+    "UserAccountCreated",
+    "LocalUserCreated",
+    "UserAccountAddedToLocalGroup"
+)
+| project
+    TimeGenerated,
+    ActionType,
+    AccountName,
+    AdditionalFields
+| order by TimeGenerated asc
+```
+<img width="727" height="139" alt="image" src="https://github.com/user-attachments/assets/d8111457-1f87-4e72-8840-3cca7d9a0798" />
+
+### Purpose and Explanation
+
+This query analyzes **DeviceEvents** on the host `azuki-sl` during the compromise window to identify account-related changes made by the attacker. It filters for actions associated with user creation and privilege assignment, such as `UserAccountCreated`, `LocalUserCreated`, and `UserAccountAddedToLocalGroup`. By focusing on these event types, the query captures the direct outcome of account manipulation rather than indirect indicators. The results reveal a newly created account named **support**, which does not align with known legitimate users and indicates a persistence mechanism established by the attacker.
+
+### Thought Process
+
+1. The objective was to determine whether the attacker created or modified user accounts for long-term access.  
+2. Restricting the query to the affected device and attack timeframe ensures relevance to the incident.  
+3. Filtering on account creation and group assignment events isolates true persistence actions.  
+4. Projecting account names and supporting details provides visibility into which users were added or modified.  
+5. Ordering events chronologically shows when persistence was established in the attack timeline.  
+6. The creation of the **support** account confirms the attacker implemented a stealth backdoor using a benign-looking username.
+
+#17 Flag 17 = Support
+----
+```kql
+DeviceFileEvents
+| where DeviceName == "azuki-sl"
+| where TimeGenerated between (datetime(2025-11-19) .. datetime(2025-11-20))
+| where InitiatingProcessAccountName == "kenji.sato"
+| where FileName !contains "script"
+| where ActionType in ("FileCreated", "FileWritten")
+| where FileName endswith ".ps1"
+| project
+    TimeGenerated,
+    FileName,
+    FolderPath,
+    ActionType,
+    InitiatingProcessFileName,
+    InitiatingProcessAccountName
+| order by TimeGenerated asc
+```
+<img width="766" height="117" alt="image" src="https://github.com/user-attachments/assets/27720aa0-eaad-4be6-9d9d-f9e7b4de6d7d" />
+
+### Purpose and Explanation
+
+This query examines **DeviceFileEvents** on the host `azuki-sl` during the attack timeframe to identify malicious PowerShell script activity. It filters for `.ps1` files that were created or written by the compromised user account `kenji.sato`, ensuring the activity is tied directly to the attacker’s execution context. By excluding filenames containing the word `script`, the query reduces noise from benign or administrative PowerShell usage. The results identify **wupdate.ps1**, indicating a malicious PowerShell script deployed to automate attacker actions such as payload execution, persistence setup, or follow-on command execution.
+
+### Thought Process
+
+1. The objective was to identify attacker-controlled PowerShell scripts used during execution.  
+2. Filtering by `DeviceName` and the specific time window restricts results to the confirmed compromise period.  
+3. Limiting results to files created or written by `kenji.sato` ties script creation directly to the compromised account.  
+4. Focusing on `.ps1` files isolates PowerShell-based execution techniques commonly abused by attackers.  
+5. Excluding generic script names reduces false positives from legitimate automation.  
+6. The identification of **wupdate.ps1** confirms the attacker used a PowerShell script as an execution and orchestration mechanism.
+
+#18 Flag 18 = wupdate.ps1
+----
+```kql
+DeviceProcessEvents
+| where DeviceName == "azuki-sl"
+| where TimeGenerated between (datetime(2025-11-19) .. datetime(2025-11-20))
+| where FileName in ("mstsc.exe", "cmdkey.exe")
+| where ProcessCommandLine has_any ("mstsc", "cmdkey", "/add", "/generic")
+| project
+    TimeGenerated,
+    FileName,
+    ProcessCommandLine,
+    InitiatingProcessAccountName,
+    InitiatingProcessFileName
+| order by TimeGenerated asc
+```
+<img width="762" height="127" alt="image" src="https://github.com/user-attachments/assets/d49685e6-99a8-402b-a6ec-3d8dd7574771" />
+
+### Purpose and Explanation
+
+This query analyzes **DeviceProcessEvents** on the host `azuki-sl` during the compromise window to identify evidence of lateral movement using native Windows tools. It filters for executions of `mstsc.exe` and `cmdkey.exe`, which together indicate credential caching followed by a Remote Desktop connection. The command-line filters isolate usage patterns consistent with adding stored credentials and initiating RDP sessions. The results reveal a connection targeting **10.1.0.188**, a private RFC1918 address, confirming internal lateral movement rather than external communication. This demonstrates that the attacker expanded access to another internal system using legitimate administrative utilities.
+
+### Thought Process
+
+1. The goal was to detect lateral movement activity using built-in Windows tools instead of custom malware.  
+2. Filtering by `DeviceName` and the attack timeframe narrows results to relevant post-compromise behavior.  
+3. Targeting `mstsc.exe` and `cmdkey.exe` focuses on a common attacker sequence of credential storage followed by RDP access.  
+4. Command-line filters (`/add`, `/generic`, `mstsc`) confirm the tools were used for remote authentication and connection.  
+5. Extracting the destination from the command line identifies **10.1.0.188** as the target system.  
+6. Because the IP falls within a private address range, this activity confirms internal lateral movement within the network.
+
+#19 Flag 19 =  10.1.0.188
+----
+```kql
+DeviceProcessEvents
+| where DeviceName == "azuki-sl"
+| where TimeGenerated between (datetime(2025-11-19) .. datetime(2025-11-20))
+| where FileName == "mstsc.exe"
+| where ProcessCommandLine has_any ("/v:", "10.", "192.168.", "172.")
+| project
+    TimeGenerated,
+    FileName,
+    ProcessCommandLine,
+    InitiatingProcessAccountName,
+    InitiatingProcessFileName
+| order by TimeGenerated asc
+```
+<img width="1226" height="199" alt="image" src="https://github.com/user-attachments/assets/32654418-9004-49bf-bc70-8070f17af471" /> 
+
+### Purpose and Explanation
+
+This query examines **DeviceProcessEvents** on the host `azuki-sl` during the defined attack window to identify explicit use of the Windows Remote Desktop client. It filters specifically for executions of `mstsc.exe`, confirming that Remote Desktop Connection was the tool used. The command-line conditions isolate cases where a remote host or internal IP address was specified, proving the process was actively initiating a connection rather than merely being present. Because `mstsc.exe` is a native administrative utility, its use allows attacker activity to blend in with legitimate system management. Overall, the query confirms that Remote Desktop was the remote access mechanism used for lateral movement within the environment.
+
+### Thought Process
+
+1. The objective was to confirm which remote access tool was used for lateral movement.  
+2. Filtering by `DeviceName` and the attack timeframe ensures only relevant compromise activity is captured.  
+3. Restricting results to `FileName == "mstsc.exe"` directly identifies the Windows Remote Desktop client.  
+4. Command-line filters for `/v:` and private IP ranges verify that an actual remote connection was initiated.  
+5. Projecting the full command line and initiating context provides attribution to the user and parent process.  
+6. Identifying `mstsc.exe` as the execution tool confirms the attacker relied on native RDP functionality to move laterally while avoiding detection.
+
+#20 Flag 20 =  mstsc.exe
+----
 
 
+  
